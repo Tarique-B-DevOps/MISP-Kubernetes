@@ -2,14 +2,51 @@
 
 # TODO:
 # - allow non-interactive mode by checking for environment variables for secrets - ✅
-# - Add --delete arg support to clean up resources
-# - Intelligently create the resources
+# - Add --delete arg support to clean up resources - ✅
+# - Intelligently create/delete the resources
 
 set -e
 
 NAMESPACE="misp-dev"
 CONFIG_FILE="misp-configs.yml"
 SECRETS_NAME="misp-secrets"
+
+if [[ "$1" == "--delete" ]]; then
+  echo "🧹 Deleting MISP Kubernetes resources..."
+
+  echo "📧 Deleting misp-mail..."
+  kubectl delete -f misp-mail.yml
+
+  echo "🧠 Deleting misp-redis..."
+  kubectl delete -f misp-redis.yml
+
+  echo "🗃️  Deleting misp-db..."
+  kubectl delete -f misp-db.yml
+
+  echo "🔌 Deleting misp-modules..."
+  kubectl delete -f misp-modules.yml
+
+  echo "🧰 Deleting misp-core..."
+  kubectl delete -f misp-core.yml
+
+  echo "🌐 Deleting misp-core LoadBalancer service..."
+  kubectl delete -f misp-core-svc.yml
+
+  echo "📦 Deleting persistent volume claims..."
+  kubectl delete -f misp-pvcs.yml
+
+  echo "⚙️ Deleting config map..."
+  kubectl delete -f "$CONFIG_FILE"
+
+  echo "🔐 Deleting Kubernetes secret..."
+  kubectl delete secret "$SECRETS_NAME"
+
+  echo "🧼 Deleting namespace..."
+  kubectl delete ns "$NAMESPACE"
+
+  echo "✅ Cleanup completed."
+  exit 0
+fi
 
 echo "[1/5] Creating namespace and setting context..."
 kubectl create namespace $NAMESPACE 2>/dev/null || echo "Namespace $NAMESPACE already exists"
