@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: valkey/valkey:7.2
+          command:
+            - sh
+            - -c
+            - >
+              exec valkey-server --requirepass "$REDIS_PASSWORD"
+          envFrom:
+            - configMapRef:
+                name: misp-configs
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: misp-secrets
+                  key: REDIS_PASSWORD      
+          livenessProbe:
+            exec:
+              command: [ "sh", "-c", "valkey-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG" ]
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            timeoutSeconds: 1
+            failureThreshold: 3
