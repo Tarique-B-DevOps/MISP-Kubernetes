@@ -119,7 +119,7 @@ Login using the email set in the `ADMIN_EMAIL` value of the config map and the p
 
 If all went well, you should land on the MISP **homepage**.
 
-![Image](https://github.com/user-attachments/assets/9a4ea937-27ed-4234-9dd9-488715253f89)
+![Image](https://github.com/user-attachments/assets/54b9d453-9849-4c91-ace1-d19b986b4a25)
 
 
 ## 🧹 Cleanup
