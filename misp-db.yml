@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+spec:
+  selector:
+    app: db
+  ports:
+    - port: 3306
+      targetPort: 3306
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      containers:
+        - name: db
+          image: mariadb:10.11
+          envFrom:
+            - configMapRef:
+                name: misp-configs
+          env:
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: misp-secrets
+                  key: MYSQL_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: misp-secrets
+                  key: MYSQL_ROOT_PASSWORD  
+          args:
+            - --innodb-buffer-pool-size=$(INNODB_BUFFER_POOL_SIZE)
+            - --innodb-change-buffering=$(INNODB_CHANGE_BUFFERING)
+            - --innodb-io-capacity=$(INNODB_IO_CAPACITY)
+            - --innodb-io-capacity-max=$(INNODB_IO_CAPACITY_MAX)
+            - --innodb-log-file-size=$(INNODB_LOG_FILE_SIZE)
+            - --innodb-read-io-threads=$(INNODB_READ_IO_THREADS)
+            - --innodb-stats-persistent=$(INNODB_STATS_PERSISTENT)
+            - --innodb-write-io-threads=$(INNODB_WRITE_IO_THREADS)
+          volumeMounts:
+            - mountPath: /var/lib/mysql
+              name: mysql-volume
+          securityContext:
+            capabilities:
+              add: ["SYS_NICE"]
+          livenessProbe:
+            exec:
+              command:
+                [
+                  "sh", "-c",
+                  "mysqladmin status --user=$MYSQL_USER --password=$MYSQL_PASSWORD"
+                ]
+            initialDelaySeconds: 30
+            periodSeconds: 2
+            timeoutSeconds: 1
+            failureThreshold: 3
+      volumes:
+        - name: mysql-volume
+          persistentVolumeClaim:
+            claimName: mysql-data

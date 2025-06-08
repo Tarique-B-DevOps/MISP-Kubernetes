@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: misp-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: misp-core
+  template:
+    metadata:
+      labels:
+        app: misp-core
+    spec:
+      containers:
+        - name: misp-core
+          image: ghcr.io/misp/misp-docker/misp-core:latest
+          ports:
+            - containerPort: 80
+            - containerPort: 443
+          envFrom:
+            - configMapRef:
+                name: misp-configs
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: misp-secrets
+                  key: REDIS_PASSWORD
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: misp-secrets
+                  key: MYSQL_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: misp-secrets
+                  key: MYSQL_ROOT_PASSWORD
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: misp-secrets
+                  key: ADMIN_PASSWORD      
+          volumeMounts:
+            - name: configs
+              mountPath: /var/www/MISP/app/Config/
+            - name: logs
+              mountPath: /var/www/MISP/app/tmp/logs/
+            - name: files
+              mountPath: /var/www/MISP/app/files/
+            - name: ssl
+              mountPath: /etc/nginx/certs/
+            - name: gnupg
+              mountPath: /var/www/MISP/.gnupg/
+          livenessProbe:
+            httpGet:
+              path: /users/heartbeat
+              port: 443
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 1
+            failureThreshold: 3
+      volumes:
+        - name: configs
+          persistentVolumeClaim:
+            claimName: misp-configs
+        - name: logs
+          persistentVolumeClaim:
+            claimName: misp-logs
+        - name: files
+          persistentVolumeClaim:
+            claimName: misp-files
+        - name: ssl
+          persistentVolumeClaim:
+            claimName: misp-ssl
+        - name: gnupg
+          persistentVolumeClaim:
+            claimName: misp-gnupg
