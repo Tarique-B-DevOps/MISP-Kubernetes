@@ -10,6 +10,8 @@
 
 ## 🚀 Quick Deployment Guide
 
+## ⚙️ Method 1:
+
 ### 1. Create Namespace and Set Context
 
 Run the following command to create the `misp-dev` namespace and set your kubectl context to use it:
@@ -137,4 +139,98 @@ kubectl delete -f misp-mail.yml \
                -f misp-configs.yml && \
 kubectl delete secret misp-secrets && \
 kubectl delete ns misp-dev
+```
+
+
+## ⚙️ Method 2: Automated Deployment (One-Click Setup)
+
+This method allows deploying the entire MISP stack using a single script quick setups.
+
+### What the Script Does
+
+- Creates the namespace `misp-dev` and sets the kubectl context
+- Prompts you securely for secrets or read from environment variables for non-interactive mode.
+- Creates the required Kubernetes Secret and ConfigMap
+- Waits for the external IP to be provisioned and sets `BASE_URL` accordingly
+- Applies all component manifests (services, PVCs, deployments)
+- Waits intelligently between deployments to avoid race conditions
+
+### 🔧 Steps
+
+1. Make the script executable:
+
+```sh
+chmod +x deploy.sh
+```
+
+2. Run the script:
+
+```sh
+./deploy.sh
+```
+
+3. When prompted, enter the required secret values:
+
+- `REDIS_PASSWORD`
+- `MYSQL_PASSWORD`
+- `MYSQL_ROOT_PASSWORD`
+- `ADMIN_PASSWORD`
+
+Then wait for the script execution to complete.
+
+> 🔐 For non-interactive use, copy and run the `export` command from the
+> [Create Kubernetes Secrets](#2-create-kubernetes-secrets) section before running the script.
+
+```sh
+./deploy.sh
+
+[1/5] Creating namespace and setting context...
+namespace/misp-dev created
+Context "gke_staging-457318_us-central1-a_staging" modified.
+[2/5] Creating Kubernetes secrets...
+Enter REDIS_PASSWORD: 
+Enter MYSQL_PASSWORD: 
+Enter MYSQL_ROOT_PASSWORD: 
+Enter ADMIN_PASSWORD: 
+secret/misp-secrets created
+[3/5] Creating MISP core LoadBalancer service...
+service/misp-core created
+⏳ Waiting for external IP...
+🌐 External IP acquired: <EXTERNAL_IP_HERE>
+[4/5] Updating BASE_URL in config and creating ConfigMap...
+configmap/misp-configs created
+[5/5] Deploying MISP Components...
+📦 1 - Creating persistent volume claims...
+persistentvolumeclaim/mysql-data created
+persistentvolumeclaim/misp-configs created
+persistentvolumeclaim/misp-logs created
+persistentvolumeclaim/misp-files created
+persistentvolumeclaim/misp-ssl created
+persistentvolumeclaim/misp-gnupg created
+persistentvolumeclaim/misp-action-mod created
+persistentvolumeclaim/misp-expansion created
+persistentvolumeclaim/misp-export-mod created
+persistentvolumeclaim/misp-import-mod created
+📧 2 - Deploying misp-mail...
+service/mail created
+deployment.apps/mail created
+🧠 3 - Deploying misp-redis...
+service/redis created
+deployment.apps/redis created
+🗃️  4 - Deploying misp-db...
+service/db created
+deployment.apps/db created
+🔌 5 - Deploying misp-modules...
+service/misp-modules created
+deployment.apps/misp-modules created
+🧰 6 - Deploying misp-core...
+deployment.apps/misp-core created
+✅ MISP deployed successfully!
+🌐 Access it at: https://<EXTERNAL_IP_HERE>
+```
+
+4. To cleanup all the kubernetes resources created, run:
+
+```sh
+./deploy.sh --delete
 ```
