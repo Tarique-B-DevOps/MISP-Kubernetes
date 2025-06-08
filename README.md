@@ -149,7 +149,7 @@ This method allows deploying the entire MISP stack using a single script quick s
 ### What the Script Does
 
 - Creates the namespace `misp-dev` and sets the kubectl context
-- Prompts you securely for secrets
+- Prompts you securely for secrets or read from environment variables for non-interactive mode.
 - Creates the required Kubernetes Secret and ConfigMap
 - Waits for the external IP to be provisioned and sets `BASE_URL` accordingly
 - Applies all component manifests (services, PVCs, deployments)
@@ -227,4 +227,10 @@ deployment.apps/misp-modules created
 deployment.apps/misp-core created
 ✅ MISP deployed successfully!
 🌐 Access it at: https://<EXTERNAL_IP_HERE>
+```
+
+4. To cleanup all the kubernetes resources created, run:
+
+```sh
+./deploy.sh --delete
 ```
