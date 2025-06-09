@@ -148,12 +148,18 @@ This method allows deploying the entire MISP stack using a single script quick s
 
 ### What the Script Does
 
-- Creates the namespace `misp-dev` and sets the kubectl context
-- Prompts you securely for secrets or read from environment variables for non-interactive mode.
-- Creates the required Kubernetes Secret and ConfigMap
-- Waits for the external IP to be provisioned and sets `BASE_URL` accordingly
-- Applies all component manifests (services, PVCs, deployments)
-- Waits intelligently between deployments to avoid race conditions
+
+- Creates the `misp-dev` namespace and sets kubectl context
+- Prompts for secrets (or reads from environment) and creates Kubernetes Secret
+- Waits for LoadBalancer external IP and patches `BASE_URL` in config
+- Intelligently creates or deletes Kubernetes resources as needed
+- Applies all manifests (service, PVCs, deployments) in order
+- Waits between critical components to avoid race conditions when creating new deployments.
+
+### 🏁 Supported Flags
+
+--rollout   → Only re-applies config and restarts deployments  
+--delete    → Fully deletes all MISP resources including namespace  
 
 ### 🔧 Steps
 
@@ -184,23 +190,27 @@ Then wait for the script execution to complete.
 ```sh
 ./deploy.sh
 
-[1/5] Creating namespace and setting context...
+[1/6] Creating namespace and setting context...
 namespace/misp-dev created
+→ Switching kubectl context to misp-dev
 Context "gke_staging-457318_us-central1-a_staging" modified.
-[2/5] Creating Kubernetes secrets...
+[2/6] Creating Kubernetes secrets...
 Enter REDIS_PASSWORD: 
 Enter MYSQL_PASSWORD: 
 Enter MYSQL_ROOT_PASSWORD: 
 Enter ADMIN_PASSWORD: 
 secret/misp-secrets created
-[3/5] Creating MISP core LoadBalancer service...
+[3/6] Deploying MISP core LoadBalancer service...
+→ Applying misp-core-svc.yml
 service/misp-core created
 ⏳ Waiting for external IP...
 🌐 External IP acquired: <EXTERNAL_IP_HERE>
-[4/5] Updating BASE_URL in config and creating ConfigMap...
+[4/6] Updating BASE_URL in configs and creating ConfigMap...
+→ Updating BASE_URL from 'https://' to '<EXTERNAL_IP_HERE>'
+→ Applying config map
 configmap/misp-configs created
-[5/5] Deploying MISP Components...
-📦 1 - Creating persistent volume claims...
+[5/6] Creating persistent volume claims...
+→ Applying misp-pvcs.yml
 persistentvolumeclaim/mysql-data created
 persistentvolumeclaim/misp-configs created
 persistentvolumeclaim/misp-logs created
@@ -211,22 +221,28 @@ persistentvolumeclaim/misp-action-mod created
 persistentvolumeclaim/misp-expansion created
 persistentvolumeclaim/misp-export-mod created
 persistentvolumeclaim/misp-import-mod created
-📧 2 - Deploying misp-mail...
+[6/6] Deploying MISP Components...
+→ Applying misp-mail.yml
 service/mail created
 deployment.apps/mail created
-🧠 3 - Deploying misp-redis...
+⏱️  Resources created, sleeping 30s
+→ Applying misp-redis.yml
 service/redis created
 deployment.apps/redis created
-🗃️  4 - Deploying misp-db...
+⏱️  Resources created, sleeping 30s
+→ Applying misp-db.yml
 service/db created
 deployment.apps/db created
-🔌 5 - Deploying misp-modules...
+⏱️  Resources created, sleeping 60s
+→ Applying misp-modules.yml
 service/misp-modules created
 deployment.apps/misp-modules created
-🧰 6 - Deploying misp-core...
+⏱️  Resources created, sleeping 60s
+→ Applying misp-core.yml
 deployment.apps/misp-core created
-✅ MISP deployed successfully!
-🌐 Access it at: https://<EXTERNAL_IP_HERE>
+⏱️  Resources created, sleeping 300s
+✅ MISP deployed
+🔗 Access it at: https://<EXTERNAL_IP_HERE>
 ```
 
 4. To cleanup all the kubernetes resources created, run:

@@ -1,123 +1,140 @@
 #!/bin/bash
 
-# TODO:
-# - allow non-interactive mode by checking for environment variables for secrets - ✅
-# - Add --delete arg support to clean up resources - ✅
-# - Intelligently create/delete the resources
-
 set -e
 
 NAMESPACE="misp-dev"
 CONFIG_FILE="misp-configs.yml"
 SECRETS_NAME="misp-secrets"
 
-if [[ "$1" == "--delete" ]]; then
-  echo "🧹 Deleting MISP Kubernetes resources..."
-
-  echo "📧 Deleting misp-mail..."
-  kubectl delete -f misp-mail.yml
-
-  echo "🧠 Deleting misp-redis..."
-  kubectl delete -f misp-redis.yml
-
-  echo "🗃️  Deleting misp-db..."
-  kubectl delete -f misp-db.yml
-
-  echo "🔌 Deleting misp-modules..."
-  kubectl delete -f misp-modules.yml
-
-  echo "🧰 Deleting misp-core..."
-  kubectl delete -f misp-core.yml
-
-  echo "🌐 Deleting misp-core LoadBalancer service..."
-  kubectl delete -f misp-core-svc.yml
-
-  echo "📦 Deleting persistent volume claims..."
-  kubectl delete -f misp-pvcs.yml
-
-  echo "⚙️ Deleting config map..."
-  kubectl delete -f "$CONFIG_FILE"
-
-  echo "🔐 Deleting Kubernetes secret..."
-  kubectl delete secret "$SECRETS_NAME"
-
-  echo "🧼 Deleting namespace..."
-  kubectl delete ns "$NAMESPACE"
-
-  echo "✅ Cleanup completed."
-  exit 0
-fi
-
-echo "[1/5] Creating namespace and setting context..."
-kubectl create namespace $NAMESPACE 2>/dev/null || echo "Namespace $NAMESPACE already exists"
-kubectl config set-context --current --namespace=$NAMESPACE
-
-echo "[2/5] Creating Kubernetes secrets..."
+declare -A SLEEP_MAP=(
+  ["misp-mail.yml"]=30
+  ["misp-redis.yml"]=30
+  ["misp-db.yml"]=60
+  ["misp-modules.yml"]=60
+  ["misp-core.yml"]=300
+)
 
 read_secret() {
   VAR_NAME="$1"
-  PROMPT_LABEL="$2"
-
+  LABEL="$2"
   if [ -z "${!VAR_NAME}" ]; then
-    read -s -p "Enter ${PROMPT_LABEL}: " input
+    read -s -p "Enter ${LABEL}: " input
     echo
     export "$VAR_NAME"="$input"
   else
-    echo "✅ Using ${PROMPT_LABEL} from environment"
+    echo "✔️  Using ${LABEL} from environment"
   fi
 }
 
+apply_direct() {
+  local file="$1"
+  echo "→ Applying $file"
+  kubectl apply -f "$file"
+}
+
+apply_with_options() {
+  local file="$1"
+  echo "→ Applying $file"
+  result=$(kubectl apply -f "$file" 2>&1)
+  echo "$result"
+  if echo "$result" | grep -q "created"; then
+    sleep_time="${SLEEP_MAP[$file]:-0}"
+    echo "⏱️  Resources created, sleeping ${sleep_time}s"
+    sleep "$sleep_time"
+  else
+    echo "✔️  Resource created or unchanged"
+  fi
+}
+
+rollout_update() {
+  echo "🔄 Restarting deployments..."
+  for dep in mail redis db misp-modules misp-core; do
+    kubectl rollout restart deployment "$dep"
+  done
+}
+
+if [[ "$1" == "--rollout" ]]; then
+  echo "→ Applying config map"
+  kubectl apply -f "$CONFIG_FILE"
+  rollout_update
+  echo "✅ Rollout complete"
+  exit 0
+fi
+
+if [[ "$1" == "--delete" ]]; then
+  echo "🧹 Deleting all resources..."
+  for file in misp-mail.yml misp-redis.yml misp-db.yml misp-modules.yml misp-core.yml misp-core-svc.yml misp-pvcs.yml "$CONFIG_FILE"; do
+    echo "→ Deleting from $file"
+    kubectl delete -f "$file" --ignore-not-found
+  done
+  echo "🔐 Deleting secret $SECRETS_NAME"
+  kubectl delete secret "$SECRETS_NAME" --ignore-not-found
+  echo "🚪 Deleting namespace $NAMESPACE"
+  kubectl delete ns "$NAMESPACE" --ignore-not-found
+  echo "✅ Cleanup complete"
+  exit 0
+fi
+
+echo "[1/6] Creating namespace and setting context..."
+kubectl create namespace "$NAMESPACE" 2>/dev/null || echo "✔️  Namespace $NAMESPACE already exists"
+
+CURRENT_NS=$(kubectl config view --minify --output 'jsonpath={..namespace}')
+if [[ "$CURRENT_NS" != "$NAMESPACE" ]]; then
+  echo "→ Switching kubectl context to $NAMESPACE"
+  kubectl config set-context --current --namespace="$NAMESPACE"
+else
+  echo "✔️  Context already set to $NAMESPACE"
+fi
+
+echo "[2/6] Creating Kubernetes secrets..."
 read_secret REDIS_PASSWORD "REDIS_PASSWORD"
 read_secret MYSQL_PASSWORD "MYSQL_PASSWORD"
 read_secret MYSQL_ROOT_PASSWORD "MYSQL_ROOT_PASSWORD"
 read_secret ADMIN_PASSWORD "ADMIN_PASSWORD"
 
-kubectl create secret generic $SECRETS_NAME \
-  --from-literal=REDIS_PASSWORD="$REDIS_PASSWORD" \
-  --from-literal=MYSQL_PASSWORD="$MYSQL_PASSWORD" \
-  --from-literal=MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD" \
-  --from-literal=ADMIN_PASSWORD="$ADMIN_PASSWORD" || echo "Secret $SECRETS_NAME already exists"
+if ! kubectl get secret "$SECRETS_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
+  kubectl create secret generic "$SECRETS_NAME" \
+    --from-literal=REDIS_PASSWORD="$REDIS_PASSWORD" \
+    --from-literal=MYSQL_PASSWORD="$MYSQL_PASSWORD" \
+    --from-literal=MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD" \
+    --from-literal=ADMIN_PASSWORD="$ADMIN_PASSWORD"
+else
+  echo "✔️  Secret $SECRETS_NAME already exists"
+fi
 
-echo "[3/5] Creating MISP core LoadBalancer service..."
-kubectl apply -f misp-core-svc.yml
+echo "[3/6] Deploying MISP core LoadBalancer service..."
+apply_direct "misp-core-svc.yml"
 
 echo "⏳ Waiting for external IP..."
 EXTERNAL_IP=""
 while [[ -z "$EXTERNAL_IP" ]]; do
-  EXTERNAL_IP=$(kubectl get svc misp-core -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+  EXTERNAL_IP=$(kubectl get svc misp-core -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
   [[ -z "$EXTERNAL_IP" ]] && sleep 5
 done
 echo "🌐 External IP acquired: $EXTERNAL_IP"
 
-echo "[4/5] Updating BASE_URL in config and creating ConfigMap..."
-TMP_CONFIG="misp-configs.generated.yml"
-sed -E "s|^( *BASE_URL:).*|\1 \"https://$EXTERNAL_IP\"|" "$CONFIG_FILE" > "$TMP_CONFIG"
-kubectl apply -f "$TMP_CONFIG"
+echo "[4/6] Updating BASE_URL in configs and creating ConfigMap..."
+BASE_URL_LINE=$(grep -E '^ *BASE_URL:' "$CONFIG_FILE" || true)
+CURRENT_URL=$(echo "$BASE_URL_LINE" | sed -E 's/^ *BASE_URL: *"?([^"]*)"?/\1/')
+TARGET_URL="https://$EXTERNAL_IP"
 
-echo "[5/5] Deploying MISP Components..."
+if [[ "$CURRENT_URL" != "$TARGET_URL" ]]; then
+  echo "→ Updating BASE_URL from '$CURRENT_URL' to '$TARGET_URL'"
+  sed -i.bak -E "s|^( *BASE_URL:).*|\1 \"$TARGET_URL\"|" "$CONFIG_FILE"
+else
+  echo "✔️  BASE_URL already set"
+fi
 
-echo "📦 1 - Creating persistent volume claims..."
-kubectl apply -f misp-pvcs.yml
+echo "→ Applying config map"
+kubectl apply -f "$CONFIG_FILE"
 
-echo "📧 2 - Deploying misp-mail..."
-kubectl apply -f misp-mail.yml
-sleep 30
+echo "[5/6] Creating persistent volume claims..."
+apply_direct "misp-pvcs.yml"
 
-echo "🧠 3 - Deploying misp-redis..."
-kubectl apply -f misp-redis.yml
-sleep 60
+echo "[6/6] Deploying MISP Components..."
+for file in misp-mail.yml misp-redis.yml misp-db.yml misp-modules.yml misp-core.yml; do
+  apply_with_options "$file"
+done
 
-echo "🗃️  4 - Deploying misp-db..."
-kubectl apply -f misp-db.yml
-sleep 60
-
-echo "🔌 5 - Deploying misp-modules..."
-kubectl apply -f misp-modules.yml
-sleep 60
-
-echo "🧰 6 - Deploying misp-core..."
-kubectl apply -f misp-core.yml
-sleep 300
-
-echo "✅ MISP deployed successfully!"
-echo "🌐 Access it at: https://$EXTERNAL_IP"
+echo "✅ MISP deployed"
+echo "🔗 Access it at: https://$EXTERNAL_IP"
